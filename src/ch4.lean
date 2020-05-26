@@ -1,8 +1,4 @@
-import tactic
-
-example (a b : Prop) (h : a ∧ b) : a :=
-by library_search -- should say: `exact h.left`
-
+#check function.const
 -- Section 4.1: The universal quantifier
 namespace s41
     section
@@ -592,27 +588,94 @@ section
                 absurd pw (h2 w)
             end)
         (assume h : ¬ (∀ x, ¬ p x),
-            -- for some arbtirary b : α
-            -- if ¬ p b, then that means ∀ x, ¬ p x (absurd)
-            -- so p b, and therefore ∃ x, p x
-            -- but I cannot define an arbitrary b, since this requires "assume b:α, ..."
-            -- and the current type I am constructing is '∃ (x : α), p x' which takes no args
-            _)
+            have hem: (∃ x, p x) ∨ (¬ ∃ x, p x), from em ∃ x, p x,
+            or.elim hem id
+                (assume hn: ¬ ∃ x, p x,
+                    false.elim (h
+                        (assume b: α,
+                            have hem2: p b ∨ ¬p b, from em (p b),
+                            or.elim hem2
+                            (assume hpb: p b, false.elim (hn ⟨b, hpb⟩))
+                            id))))
 
     example : (¬ ∃ x, p x) ↔ (∀ x, ¬ p x) := iff.intro
         (assume h : ¬ ∃ x, p x,
-            _)
+            assume b: α,
+            have hem: p b ∨ ¬p b, from em (p b),
+            or.elim hem
+                (assume hpb: p b, false.elim (h ⟨b, hpb⟩))
+                id)
         (assume h : ∀ x, ¬ p x,
-            _)
+            assume hx: ∃ x, p x,
+            match hx with ⟨w, hpw⟩ :=  absurd hpw (h w) end)
 
-    example : (¬ ∀ x, p x) ↔ (∃ x, ¬ p x) := sorry
+    example : (¬ ∀ x, p x) ↔ (∃ x, ¬ p x) := iff.intro
+        (assume h : ¬ ∀ x, p x,
+            have ep: (∃ x, ¬ p x) ∨ ¬(∃ x, ¬ p x), from em (∃ x, ¬ p x),
+            or.elim ep id
+                (assume hn :¬(∃ x, ¬ p x),
+                    false.elim (h
+                        (assume b: α,
+                            have hem2: p b ∨ ¬p b, from em (p b),
+                            or.elim hem2 id
+                                (assume hnpb: ¬ p b, false.elim (hn ⟨b, hnpb⟩))))))
+        (assume h : ∃ x, ¬ p x,
+            match h with ⟨w, npw⟩ :=
+                assume h2: ∀ x, p x,
+                    have h3: p w, from h2 w,
+                    show false, from absurd h3 npw
+            end)
 
 
-    example : (∀ x, p x → r) ↔ (∃ x, p x) → r := sorry
+    example : (∀ x, p x → r) ↔ (∃ x, p x) → r := iff.intro
+        (assume h : ∀ x, p x → r,
+            assume hx : ∃ x, p x,
+                match hx with ⟨w, hpw⟩ :=
+                    show r, from h w hpw
+                end)
+        (assume h :  (∃ x, p x) → r,
+            assume b: α,
+                assume hpb : p b,
+                show r, from h ⟨b, hpb⟩)
 
-    example : (∃ x, p x → r) ↔ (∀ x, p x) → r := sorry
 
-    example : (∃ x, r → p x) ↔ (r → ∃ x, p x) := sorry
+    example : (∃ x, p x → r) ↔ (∀ x, p x) → r := iff.intro
+        (assume h : (∃ x, p x → r),
+            (assume hb: ∀ x, p x,
+                match h with ⟨w, hpwr⟩ :=
+                    show r, from hpwr (hb w)
+                end))
+        (assume h1 : (∀ x, p x) → r,
+            show ∃ x, p x → r, from
+            by_cases
+                (assume hap : ∀ x, p x, ⟨a, λ h', h1 hap⟩)
+                (assume hnap : ¬ ∀ x, p x,
+                by_contradiction
+                    (assume hnex : ¬ ∃ x, p x → r,
+                    have hap : ∀ x, p x, from
+                        assume x,
+                        by_contradiction
+                        (assume hnp : ¬ p x,
+                            have hex : ∃ x, p x → r,
+                            from ⟨x, (assume hp, absurd hp hnp)⟩,
+                            show false, from hnex hex),
+                    show false, from hnap hap)))
+
+
+
+    example : (∃ x, r → p x) ↔ (r → ∃ x, p x) := iff.intro
+        (assume h : (∃ x, r → p x),
+            (assume hr : r,
+                match h with ⟨w, rpw⟩ :=
+                    ⟨w, rpw hr⟩
+                end ))
+        (assume h : (r → ∃ x, p x),
+            by_cases
+                (assume hr: r,
+                    have hx: ∃ x, p x, from h hr,
+                    match hx with ⟨w, hpw⟩ := ⟨w, λ _, hpw⟩
+                    end )
+                (assume nhr: ¬r, ⟨a,(assume hr:r, absurd hr nhr)⟩))
 
 end
 --6: give a calculational proof
@@ -633,18 +696,25 @@ section
 
     example (y : real) (h : y > 0)  : exp (log y) = y :=
     exp_log_eq h
-
+    -- don't understand
     theorem log_mul {x y : real} (hx : x > 0) (hy : y > 0) :
-    log (x * y) = log x + log y :=
-    sorry
+        log (x * y) = log x + log y :=
+        begin
+        rw[<-exp_log_eq hx, <-exp_log_eq hy, <-exp_add],
+        simp only [log_exp_eq]
+        end
+
 end
 
 --7
 --use only ring properties of ℤ in Section 4.2 + the theorem sub_self.
 #check sub_self
 
-example (x : ℤ) : x * 0 = 0 :=
-sorry
+example (x : ℤ) : 
+    x * 0 = 0 :=
+    by simp
+-- IDK why this doesn't work
+ -- rw [<-neg_add_self, sub_mul, sub_self]
 
 end s4x
 
