@@ -3,116 +3,119 @@ import data.equiv.basic
 import data.real.basic
 import tactic
 
+namespace futurama
+
 open equiv -- "perm x" is "equiv x x" AKA "x ≃ x"
 open nat
 open list
-set_option trace.simplify.rewrite false
-
--- Repeat a binary function n times
-def rep {α : Type*} : ℕ → (α → α) → α → α
- | zero     _ x := x
- | (succ n) f x := f (rep n f x)
-
--- Predicate for a permutation on a finite set to be cyclic
--- Any element should work - ∃ is to avoid empty finite set
-
-def cyclic' {n : ℕ} (p : perm (fin n)) (x: fin n) :=
-    rep n p.to_fun x = x
-
-def cyclic  : Π{n:ℕ}, perm (fin n) → Prop
-   | 0  _ := ff
-   | (succ m) p := cyclic' p (fin.mk 0 (by simp only [succ_pos']))
 
 
--- Proposed sequence of switches to solve futurama problem for a single cycle
+/-
+1. Abbreviations (could add more if needed)
+-/
+def finpairs (n:ℕ) : Type := list (fin n × fin n)
 
---Helper recursive function
-def construction_rec : Π{n:ℕ} {p: perm (fin n)},
-                       bool → ℕ → cyclic p → list ((fin (n+2)) × (fin (n+2)))
- | _ _ tt 0        h := construction_rec ff 0 h
- | _ _ ff 0        _ := list.nil
- | n p ff (succ m) h := (n+1,succ m) :: construction_rec tt m h
- | n p tt (succ m) h := (n+1,succ m) :: construction_rec tt m h
+/-
+2. Defining a predicate for a permutation on a finite set to be a k-cycle
+
+Start at 0, and take k steps (which don't bring you to 0 until the last one)
+-/
+def cyclicrec : Π{n:ℕ}, ℕ → fin n → perm (fin n) → Prop
+ | n 0 curr p := (p.to_fun curr).val = 0
+ | n (succ m) curr  p := ((p.to_fun curr).val > 0 )
+                         ∧ cyclicrec m (p.to_fun curr) p
+
+def cyclic : Π{n:ℕ}, perm (fin n) → Prop
+ | 0        _ := ff -- exclude 0-cycles
+ | (succ m) p := cyclicrec m ⟨0, succ_pos'⟩ p
+
+--instance decidable {n:ℕ} {p: perm (fin n)} : (cyclic p) := sorry
+
+/-
+3. Proposed sequence of switches to solve futurama problem for a single cycle
+
+For an arbitrary simple cycle of length k, the sequence of switches is (specializing 'i' from the wikipedia proof to 'k-1'):
+    (x, 1) (x, 2) ... (x, k-1) (y, k) (x k) (y 1) (x y)
+
+The two additional elements x and y are represented as n+1 and n+2 respectively
+-/
+
+def construction_rec : Π{n:ℕ} {p: perm (fin n)}, ℕ → cyclic p → finpairs (n+2)
+ | n p (succ m) h := (n+1, n-m-1) :: construction_rec m h
+ | n _ 0        h := (n+2,n)::(n+1,n)::(n+2,1)::(n+1,n+2)::nil
 
 def construction {n : ℕ} {p : perm (fin n)} (h: cyclic p)
-    : list ((fin (n+2)) × (fin (n+2)))
-    := construction_rec ff n h
+    : finpairs (n+2) := construction_rec n h
+
+/-
+4. Defining a swap operation. For a perm σ, swap σ x y means:
+    If a→x in σ, then a→y in the result (and vice versa)
+    If x→b in σ, then y→b in the result (and vice versa)
+
+Swapping two elements of a permutation yields a permutation.
+-/
 
 
--- identity permutation for arbitrary type
-def id_perm (α : Type*) : perm α := ⟨id, id,
-                                     by {intro _, refl}, by {intro _, refl}⟩
+def swap' {α : Type*} [decidable_eq α] (x: α) (y: α) : α → α :=
+    λ a :α, if      a = x then y
+            else if a = y then x
+            else               a
 
-
--- Helpers for swap, defined below
--- Swapping two elements of a permutation yields a permutation
-lemma perm_swap {α β : Type*} (c: α ≃ β) (a: α) (b : β):
-        c.to_fun a = b ↔ c.inv_fun b = a := iff.intro
-    (assume h : c.to_fun a = b, by
-        calc
-        c.inv_fun b = c.inv_fun (c.to_fun a)  : congr_arg c.inv_fun (eq.symm h)
-                ... = a :  by rw c.left_inv)
-    (assume h : c.inv_fun b = a,
-        calc c.to_fun a = c.to_fun (c.inv_fun b) : congr_arg c.to_fun (eq.symm h)
-                    ... = b : by rw c.right_inv)
-
-
-
-def swapf {α : Type*} [decidable_eq α] (f: perm α) (x: α) (y: α) : α → α :=
-    λ a :α, if      a = x then f.to_fun y
-            else if a = y then f.to_fun x
-            else               f.to_fun a
-def swapr {α : Type*} [decidable_eq α] (f: perm α) (x: α) (y: α) : α → α :=
-    λ fa: α, if      f.inv_fun fa = x then y
-             else if f.inv_fun fa = y then x
-             else                          f.inv_fun fa
-
-def swap {α : Type*} [decidable_eq α] (f: perm α) (x: α) (y: α) : perm α :=
-    ⟨swapf f x y, swapr f x y,
-    show function.left_inverse (swapr f x y) (swapf f x y), by begin
+def swap {α : Type*} [decidable_eq α] (x: α) (y: α) : perm α :=
+    ⟨swap' x y,swap' x y,
+    show function.left_inverse (swap' x y) (swap' x y), by begin
         intros a,
-        unfold swapr, unfold swapf,
-        split_ifs,
-            {rw f.left_inv at h_1, rwa h},
-            {exact eq.symm h},
-            {rw f.left_inv at h_2, contradiction},
-            {exact eq.symm h_1},
-            {rw f.left_inv at h_2, contradiction},
-            {rw f.left_inv at h_2, contradiction},
-            {rw f.left_inv at h_2, contradiction},
-            {rw f.left_inv at h_3, contradiction},
-            {rw f.left_inv}
-        end ,
-    show function.right_inverse (swapr f x y) (swapf f x y), by begin
-        intros a,
-        unfold swapr, unfold swapf,
-        split_ifs,
-            {rw <-(perm_swap f x a) at h,
-             rwa <-h_1 at h},
-             {rwa (perm_swap f x a)},
-             {rwa (perm_swap f y a)},
-             {rwa f.right_inv}
-        end
+        unfold swap', split_ifs,
+            {rwa h},
+            {rwa h},
+            {rwa h_1},
+            {refl},
+    end
+    ,
+    show function.right_inverse (swap' x y) (swap' x y), by begin
+    intros a,
+    unfold swap', split_ifs,
+        {rwa h},
+        {rwa h},
+        {rwa h_1},
+        {refl},
+    end
     ⟩
 
+
+-- Swap a list of swaps in sequence
 def swaps {α : Type*} [decidable_eq α] : perm α → list (α×α) → perm α
-    | f ((a1, a2) :: b) := swaps (swap f a1 a2) b
+    | f ((a1, a2) :: b) := f * (swap a1 a2) * swaps f b
     | f nil             := f
 
--- Never swap the same pair twice
+/-
+5. Defining a predicate on a list of swaps to judge whether they
+   satisfy the constraints of The Prisoner of Benda
+
+   If we have the swap (x,y) at any position in the list, we return ff
+   iff (x,y) or (y,x) appears at any other point in the list.
+
+   This is done by iterating through the list, accumulating a set of
+   (ordered) pairs. For each swap we check if it (or its reverse)
+   is in the seen set.
+-/
+
 def valid_swaps_rec  {α : Type*} [decidable_eq α]:
     list (α×α) → set (α×α) → Prop
 | list.nil _ := tt
 | ((ha,hb)::tl) seen := ¬((ha,hb) ∈ seen ∨ (hb,ha) ∈ seen)
                         ∧ (valid_swaps_rec tl (set.insert (ha,hb) seen))
 
--- Top level call to check that the list of swaps is valid
 def valid_swaps {α : Type*} [decidable_eq α] (s : list (α×α)) : Prop :=
     valid_swaps_rec s ∅
 
 
+/-
+6. Two extra elems in the set being permuted needed for the construction to work.
+This function takes a permutation on n elements and extends it to a
+permutation on n+2 elements.
+-/
 
--- Two extra elems in the set being permuted needed for the construction to work.
 def add_two_to_perm_forward {n: ℕ} (p : perm (fin n)) : fin (n+2) → fin(n+2) :=
     λ m : fin (n+2),
         if h: m.val < n
@@ -179,11 +182,40 @@ end
 def add_two {n :ℕ} (p : perm (fin n)) : perm (fin (n+2)) :=
     ⟨add_two_to_perm_forward p, add_two_to_perm_reverse p,
      a2finv p, a2rinv p⟩
+/-
+7. The main theorem:
 
--- Test that 1.) the construction returns everyone to their original bodies
--- (yields the identity permutation) and 2.) it has no repeat swaps
-theorem futurama {n: ℕ} {p: perm (fin n)} (h: cyclic p) :
-    swaps (add_two p) (construction h) = id_perm (fin (n+2))
+Test that
+    1.) the construction above returns everyone to their original bodies
+        (yields the identity permutation)
+and 2.) it has no repeat swaps
+-/
+theorem futurama_thm {n: ℕ} {p: perm (fin n)} (h: cyclic p) :
+    swaps (add_two p) (construction h) = 1
     ∧ valid_swaps (construction h)
     := sorry
 
+/-
+8. Constructing+printing permutations for testing
+-/
+def ss_rec  : Π {n:ℕ}, list (fin n) → perm (fin n)
+| _ nil         := 1
+| _ (h::nil)    := 1 -- Actually this case is never encountered
+| _ (h::h2::t)  := (swap h h2) * (ss_rec (h2::t))
+
+def mk_cyclic {n:ℕ} (l : list (fin n)) : perm (fin n) := ss_rec l
+
+
+def to_perm' {n : ℕ} (l : list (fin n × fin n)) : perm (fin n) :=
+    swaps 1 l
+
+def pp_rec : Π{n:ℕ}, ℕ → perm (fin n) → string
+ | _ 0 _ := "|"
+ | n (succ m) p := if h: m < n
+                 then "|" ++ (pp_rec m p) ++ to_string m
+                      ++ "→"++ (to_string (p.to_fun ⟨m, h⟩))
+                 else "ERROR"
+
+def print_perm {n:ℕ} (p:perm (fin n)) : string := pp_rec n p
+
+end futurama
